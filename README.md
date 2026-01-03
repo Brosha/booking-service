@@ -5,24 +5,36 @@
 
 ## Архитектура
 
-- `eureka-server` — Netflix Eureka Server (service discovery), порт `8761`.
-- `gateway` — Spring Cloud Gateway:
+- `eureka-server` – Netflix Eureka Server (service discovery), порт `8761`.
+- `gateway` – Spring Cloud Gateway:
   - `/api/bookings/**` → `booking-service`
   - `/api/hotels/**` → `hotel-service`
-- `booking-service` — пользователи, аутентификация, бронирования, поиск доступных/рекомендованных номеров.
-- `hotel-service` — отели, номера, статистика загруженности, временные блокировки (HOLD).
-- `common` — общие DTO и обработка ошибок (`ErrorDTO`, `GlobalExceptionHandler`).
+- `booking-service` – пользователи, аутентификация, бронирования, поиск доступных/рекомендованных номеров.
+- `hotel-service` – отели, номера, статистика загруженности, временные блокировки (HOLD).
+- `common` – общие DTO и обработка ошибок (`ErrorDTO`, `GlobalExceptionHandler`).
 
-Каждый сервис — отдельное Spring Boot приложение с H2 (in‑memory) и регистрацией в Eureka.
+Каждый сервис – отдельное Spring Boot приложение с H2 (in-memory) и регистрацией в Eureka.
 
 ## Технологический стек
 
-- Java 17, Maven (multi‑module).
+- Java 17, Maven (multi-module).
 - Spring Boot 3.5.x, Spring Web, Spring Data JPA, H2.
 - Spring Security 6 + OAuth2 Resource Server (JWT).
 - Spring Cloud Gateway, Spring Cloud Netflix Eureka, Spring Cloud LoadBalancer.
 - Resilience4j (Retry + CircuitBreaker для вызовов Booking → Hotel).
 - Lombok, Jakarta Validation.
+
+## Архитектура (обзор)
+
+Логический поток запросов:
+
+`Клиент → Gateway → (Eureka discovery) → booking-service / hotel-service → H2`
+
+- Все внешние запросы идут через `gateway`, который по URI маршрутизирует их на нужный сервис.
+- `booking-service` отвечает за пользователей, JWT, бронирования и выдачу доступных/рекомендованных номеров.
+- `hotel-service` отвечает за справочник отелей/номеров и статистику их загруженности, а также за алгоритм HOLD.
+- Оба сервиса регистрируются в `eureka-server` и используют его для discovery.
+- Базы данных — встроенные H2 в каждом сервисе (in-memory, поднимаются вместе с приложением).
 
 ## Инициализация данных (`data.sql`)
 
@@ -55,7 +67,7 @@
 
 В репозитории есть `Dockerfile` для каждого сервиса и `docker-compose.yml` в корне.
 
-1. Собрать JAR’ы (как выше):
+1. Собрать JAR'ы (как выше):
    ```bash
    mvn clean package
    ```
@@ -66,7 +78,7 @@
 
 После старта:
 - Eureka будет доступен по `http://localhost:8761`.
-- Gateway — по `http://localhost:8081` (маршрутизирует запросы к booking‑ и hotel‑service через Eureka).
+- Gateway – по `http://localhost:8081` (маршрутизирует запросы к booking-service и hotel-service через Eureka).
 
 ## Аутентификация и JWT
 
@@ -93,9 +105,9 @@ JWT выдаётся в `booking-service` и далее валидируется
    ```
 
 Роли: `USER` / `ADMIN`.  
-`booking-service` и `hotel-service` защищены как Resource Server; доступ к административным эндпойнтам — только для `ADMIN`.
+`booking-service` и `hotel-service` защищены как Resource Server; доступ к административным эндпойнтам – только для `ADMIN`.
 
-## Ключевые бизнес‑фичи
+## Ключевые бизнес-фичи
 
 - Алгоритм планирования занятости:
   - проверка пересечений по датам в `BookingService` с блокировкой (`PESSIMISTIC_WRITE`);
@@ -103,7 +115,7 @@ JWT выдаётся в `booking-service` и далее валидируется
   - учёт и сортировка по `times_booked` для рекомендаций.
 - Сага и согласованность:
   - бронирование создаётся в статусе `PENDING`;
-  - вызов `confirm-availability` в Hotel; при успехе — `CONFIRMED`, при ошибке — `CANCELLED` (компенсация);
+  - вызов `confirm-availability` в Hotel; при успехе – `CONFIRMED`, при ошибке – `CANCELLED` (компенсация);
   - при отмене брони вызывается `release`.
 - Устойчивость:
   - Resilience4j `@Retry` + `@CircuitBreaker` на вызовах `HotelClient` (`confirmAvailability`, `release`, `getAllRooms`, `getRecommendedRooms`).
@@ -113,10 +125,10 @@ JWT выдаётся в `booking-service` и далее валидируется
 - Пагинация:
   - `GET /api/bookings/bookings` принимает параметры `page` и `size`.
 - Безопасность:
-  - `booking-service`: публичные `/user/register`, `/user/auth`; `/admin/**` только для `ADMIN`, остальное — для аутентифицированных;
-  - `hotel-service`: создание/управление отелями и номерами — только для `ADMIN`, остальные `/api/hotels/**` — для аутентифицированных;
-  - методная безопасность `@PreAuthorize` для админ‑операций с пользователями.
-- Gateway‑трассировка:
+  - `booking-service`: публичные `/user/register`, `/user/auth`; `/admin/**` только для `ADMIN`, остальное – для аутентифицированных;
+  - `hotel-service`: создание/управление отелями и номерами – только для `ADMIN`, остальные `/api/hotels/**` – для аутентифицированных;
+  - методная безопасность `@PreAuthorize` для админ-операций с пользователями.
+- Gateway-трассировка:
   - глобальный фильтр в `gateway` добавляет/прокидывает заголовок `X-Request-ID` и логирует входящие запросы.
 
 ## Обзор API
@@ -124,34 +136,34 @@ JWT выдаётся в `booking-service` и далее валидируется
 ### Booking Service (через Gateway `http://localhost:8081/api/bookings/...`)
 
 **Аутентификация / пользователи**
-- `POST /api/bookings/user/register` — регистрация пользователя.
-- `POST /api/bookings/user/auth` — выдача JWT.
+- `POST /api/bookings/user/register` – регистрация пользователя.
+- `POST /api/bookings/user/auth` – выдача JWT.
 
 **Доступность и рекомендации**
 - `GET /api/bookings/availability/rooms?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&hotelId=&limit=`  
-  — доступные номера по датам (фильтр по отелю, ограничение по количеству).
+  – доступные номера по датам (фильтр по отелю, ограничение по количеству).
 - `GET /api/bookings/availability/recommend?...`  
-  — рекомендованные номера, отсортированные по `timesBooked` (при равенстве — по `id`).
+  – рекомендованные номера, отсортированные по `timesBooked` (при равенстве – по `id`).
 
 **Бронирования (роль USER/ADMIN)**
 - `POST /api/bookings/bookings`  
-  — создание брони; поддерживает заголовок `X-Idempotency-Key` для идемпотентности.
+  – создание брони; поддерживает заголовок `X-Idempotency-Key` для идемпотентности.
 - `GET /api/bookings/bookings?page=&size=`  
-  — список бронирований текущего пользователя (только свои).
+  – список бронирований текущего пользователя (только свои).
 - `GET /api/bookings/bookings/{id}`  
-  — детали конкретной брони (чужие брони недоступны).
+  – детали конкретной брони (чужие брони недоступны).
 - `DELETE /api/bookings/bookings/{id}`  
-  — отмена брони (и вызов `release` в `hotel-service`).
+  – отмена брони (и вызов `release` в `hotel-service`).
 
 ### Hotel Service (через Gateway `http://localhost:8081/api/hotels/...`)
 
 **CRUD и статистика**
-- `POST /api/hotels/hotels` — создание отеля (ADMIN).
-- `POST /api/hotels/rooms` — создание номера (ADMIN).
-- `GET /api/hotels/hotels` — список отелей.
-- `GET /api/hotels/rooms` — список доступных номеров.
-- `GET /api/hotels/rooms/recommend` — рекомендованные номера (по `times_booked`).
-- `GET /api/hotels/stats/rooms?hotelId=...` — статистика по номерам отеля:
+- `POST /api/hotels/hotels` – создание отеля (ADMIN).
+- `POST /api/hotels/rooms` – создание номера (ADMIN).
+- `GET /api/hotels/hotels` – список отелей.
+- `GET /api/hotels/rooms` – список доступных номеров.
+- `GET /api/hotels/rooms/recommend` – рекомендованные номера (по `times_booked`).
+- `GET /api/hotels/stats/rooms?hotelId=...` – статистика по номерам отеля:
   `totalRooms`, `availableRooms`, `totalTimesBooked`.
 
 **Алгоритм HOLD**
@@ -174,24 +186,42 @@ JWT выдаётся в `booking-service` и далее валидируется
 }
 ```
 
-- `400 BAD_REQUEST` — ошибки валидации входных данных (`IllegalArgumentException`).
-- `409 CONFLICT` — конфликтные состояния (пересечение дат, занятый номер и т.п., `IllegalStateException`).
-- `401 UNAUTHORIZED` — проблемы с аутентификацией (JWT).
-- `403 FORBIDDEN` — недостаточно прав (`AccessDeniedException`).
-- `500 INTERNAL_SERVER_ERROR` — прочие ошибки.
+- `400 BAD_REQUEST` – ошибки валидации входных данных (`IllegalArgumentException`).
+- `409 CONFLICT` – конфликтные состояния (пересечение дат, занятый номер и т.п., `IllegalStateException`).
+- `401 UNAUTHORIZED` – проблемы с аутентификацией (JWT).
+- `403 FORBIDDEN` – недостаточно прав (`AccessDeniedException`).
+- `500 INTERNAL_SERVER_ERROR` – прочие ошибки.
 
 ## Тестирование
 
 В проекте предусмотрен базовый набор unit/integration тестов:
 
 - `booking-service`:
-  - `BookingServiceTest` — успешное бронирование, пересечение дат, идемпотентность, сага с компенсацией, доступ только к своим бронированиям, пагинация.
-  - `BookingConcurrencyTest` — конкурентные бронирования на один номер/диапазон дат (должна пройти только одна бронь).
+  - `BookingServiceTest` – успешное бронирование, пересечение дат, идемпотентность, сага с компенсацией, доступ только к своим бронированиям, пагинация.
+  - `BookingConcurrencyTest` – конкурентные бронирования на один номер/диапазон дат (должна пройти только одна бронь).
 - `hotel-service`:
-  - `HotelServiceTest` — поведение `confirmRoomAvailability`/`releaseRoom` (HOLD, счётчик `times_booked`, защита от чужого `bookingId`).
+  - `HotelServiceTest` – поведение `confirmRoomAvailability`/`releaseRoom` (HOLD, счётчик `times_booked`, защита от чужого `bookingId`).
 
 Запуск всех тестов:
 
 ```bash
 mvn test
 ```
+
+## Ключевые архитектурные решения (ADR-кратко)
+
+- **Выбор in-memory H2 для обоих сервисов**  
+  Для учебного проекта важнее простота запуска и изоляция сервисов, чем персистентность. Поэтому у каждого сервиса своя H2, схема поднимается через JPA + `data.sql`.
+
+- **JWT как единый механизм аутентификации**  
+  Аутентификация и выдача токенов централизованы в `booking-service`, остальные сервисы работают как OAuth2 Resource Server и доверяют подписи токена.
+
+- **Согласованность через сагу и HOLD, а не через распределённые транзакции**  
+  Взаимодействие Booking ↔ Hotel реализовано как сага: локальная транзакция в Booking, затем confirm/release в Hotel. Для конкуренции используется HOLD (`lastBookingId`, `holdUntil`) и пессимистические блокировки вместо двухфазного коммита.
+
+- **Resilience4j для устойчивости межсервисных вызовов**  
+  Для вызовов `HotelClient` применяются Retry и CircuitBreaker. Это даёт контролируемое поведение при временных сбоях `hotel-service`.
+
+- **Gateway + Eureka как основной слой интеграции**  
+  Все внешние клиенты общаются только с `gateway`; внутренние сервисы регистрируются в Eureka. Это соответствует типовой схеме микросервисов Spring Cloud и позволяет масштабировать сервисы без изменения клиентов.
+
