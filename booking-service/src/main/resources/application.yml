@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: booking-service
+
+server:
+  port: 0
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+resilience4j:
+  retry:
+    instances:
+      hotelConfirm:
+        max-attempts: 3
+        wait-duration: 300ms
+      hotelRelease:
+        max-attempts: 3
+        wait-duration: 300ms
+      hotelRooms:
+        max-attempts: 3
+        wait-duration: 200ms
+      hotelRecommend:
+        max-attempts: 3
+        wait-duration: 200ms
+  circuitbreaker:
+    instances:
+      hotelConfirm:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+      hotelRelease:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+      hotelRooms:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+      hotelRecommend:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+
